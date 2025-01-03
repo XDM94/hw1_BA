@@ -1,43 +1,49 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-from time import sleep
-from pathlib import Path
+import time
 
-# Пути к файлам
-log_file = Path("./logs/metric_log.csv")
-output_image = Path("./logs/error_distribution.png")
+def plot_error_distribution():
+    while True:
+        try:
+            # Чтение данных
+            df = pd.read_csv("logs/metric_log.csv")
+            df = df.dropna()
 
-# Убедитесь, что папка logs существует
-log_file.parent.mkdir(parents=True, exist_ok=True)
-
-print("Сервис plot запущен. Ожидание обновлений...")
-
-while True:
-    try:
-        if log_file.exists():
-            # Читаем данные из CSV
-            data = pd.read_csv(log_file)
-            if not data.empty:
-                # Извлекаем абсолютные ошибки
-                absolute_errors = data["absolute_error"]
-
-                # Строим гистограмму
+            if len(df) > 0:
                 plt.figure(figsize=(10, 6))
-                plt.hist(absolute_errors, bins=20, color='blue', edgecolor='black', alpha=0.7)
-                plt.title("Распределение абсолютных ошибок", fontsize=16)
-                plt.xlabel("Абсолютная ошибка", fontsize=14)
-                plt.ylabel("Частота", fontsize=14)
-                plt.grid(axis='y', linestyle='--', alpha=0.7)
-                plt.tight_layout()
 
-                # Сохраняем график
-                plt.savefig(output_image)
+                # Построение гистограммы
+                n, bins, patches = plt.hist(df["absolute_error"],
+                                          bins=6,  # 6 столбцов
+                                          range=(0, 140),  # диапазон от 0 до 140
+                                          color='moccasin',  # желтый цвет
+                                          edgecolor='black')
+
+                # Сглаженная линия через средние точки столбцов
+                bin_centers = (bins[:-1] + bins[1:]) / 2
+                plt.plot(bin_centers, n, '-', color='orange', linewidth=2)
+
+                # Настройка осей и подписей
+                plt.xlabel("absolute_error")
+                plt.ylabel("Count")
+
+                # Удаление верхней и правой границы
+                plt.gca().spines['top'].set_visible(False)
+                plt.gca().spines['right'].set_visible(False)
+
+                # Установка пределов осей
+                plt.ylim(0, 6)
+                plt.xlim(0, 140)
+
+                # Сохранение графика
+                plt.savefig("logs/error_distribution.png")
                 plt.close()
-                print(f"Гистограмма обновлена: {output_image}")
-        else:
-            print(f"Файл {log_file} не найден. Ожидание...")
-    except Exception as e:
-        print(f"Ошибка при обработке: {e}")
 
-    # Ожидание перед следующей итерацией
-    sleep(5)
+            time.sleep(5)
+
+        except Exception as e:
+            print(f"Error occurred: {e}")
+            time.sleep(5)
+
+if __name__ == "__main__":
+    plot_error_distribution()

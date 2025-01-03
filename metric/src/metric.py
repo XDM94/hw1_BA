@@ -1,67 +1,93 @@
 import pika
 import json
-from pathlib import Path
+import pandas as pd
 
-# Путь к файлу для логирования
-log_dir = Path("./logs")
-log_file = log_dir / "metric_log.csv"
-
-# Создаём папку для логов, если её не существует
-log_dir.mkdir(parents=True, exist_ok=True)
-
-# Инициализируем файл с именами столбцов, если он не существует
-if not log_file.exists():
-    with open(log_file, "w") as f:
-        f.write("id,y_true,y_pred,absolute_error\n")
-
-# Словарь для временного хранения сообщений
-message_store = {}
-
-def process_message(message_id, key, value):
-    """Обрабатывает сообщение, добавляя его в store и записывая в лог при наличии полного набора."""
-    # Если идентификатор уже есть, обновляем данные
-    if message_id in message_store:
-        message_store[message_id][key] = value
-        # Если есть и y_true, и y_pred, вычисляем ошибку
-        if "y_true" in message_store[message_id] and "y_pred" in message_store[message_id]:
-            y_true = message_store[message_id]["y_true"]
-            y_pred = message_store[message_id]["y_pred"]
-            absolute_error = abs(y_true - y_pred)
-            # Логируем метрику
-            with open(log_file, "a") as f:
-                f.write(f"{message_id},{y_true},{y_pred},{absolute_error}\n")
-            print(f"Записано: id={message_id}, y_true={y_true}, y_pred={y_pred}, absolute_error={absolute_error}")
-            # Удаляем записанный идентификатор из store
-            del message_store[message_id]
-    else:
-        # Создаём новую запись для message_id
-        message_store[message_id] = {key: value}
+# Инициализируем DataFrame для хранения сообщений
+messages = pd.DataFrame(columns=["id", "y_true", "y_pred"])
 
 try:
-    # Создаём подключение к RabbitMQ
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host="rabbitmq", port=5672))
+    # Создаём подключение к серверу на локальном хосте
+    connection = pika.BlockingConnection(pika.ConnectionParameters(
+        host="rabbitmq"))
     channel = connection.channel()
 
     # Объявляем очереди
     channel.queue_declare(queue="y_true")
     channel.queue_declare(queue="y_pred")
 
-    def callback(ch, method, properties, body):
-        """Обрабатывает сообщение из очереди."""
+    # Инициализируем CSV файл с заголовками
+    with open("./logs/metric_log.csv", "w") as f:
+        f.write("id,y_true,y_pred,absolute_error\n")
+
+    def process_complete_row(row):
+        # Вычисляем абсолютную ошибку
+        absolute_error = abs(row["y_true"] - row["y_pred"])
+
+        # Записываем в CSV
+        with open("./logs/metric_log.csv", "a") as f:
+            f.write(f"{row['id']},{row['y_true']},{row['y_pred']},{absolute_error}\n")
+
+    def callback_y_true(ch, method, properties, body):
+        global messages
         message = json.loads(body)
         message_id = message["id"]
-        value = message["body"]
-        if method.routing_key == "y_true":
-            process_message(message_id, "y_true", value)
-        elif method.routing_key == "y_pred":
-            process_message(message_id, "y_pred", value)
+        y_true = message["body"]
 
-    # Подписываемся на очереди
-    channel.basic_consume(queue="y_true", on_message_callback=callback, auto_ack=True)
-    channel.basic_consume(queue="y_pred", on_message_callback=callback, auto_ack=True)
+        # Добавляем в DataFrame
+        messages.loc[len(messages)] = {
+            "id": message_id,
+            "y_true": y_true,
+            "y_pred": None,
+        }
 
-    # Запускаем режим ожидания сообщений
+        # Проверяем, есть ли соответствующее предсказание
+        matching_pred = messages[
+            (messages["id"] == message_id) & (messages["y_pred"].notna())
+        ]
+
+        if not matching_pred.empty:
+            complete_row = messages[messages["id"] == message_id].iloc[0]
+            process_complete_row(complete_row)
+            # Удаляем обработанную строку
+            messages = messages[messages["id"] != message_id]
+
+    def callback_y_pred(ch, method, properties, body):
+        global messages
+        message = json.loads(body)
+        message_id = message["id"]
+        y_pred = message["body"]
+
+        # Найти существующую запись или создать новую
+        existing_row = messages[messages["id"] == message_id]
+        if len(existing_row) > 0:
+            # Обновить существующую запись
+            messages.loc[existing_row.index[0], "y_pred"] = y_pred
+        else:
+            # Создать новую запись
+            messages.loc[len(messages)] = {"id": message_id, "y_true": None, "y_pred": y_pred}
+
+        # Проверяем, есть ли соответствующее истинное значение
+        matching_true = messages[
+            (messages["id"] == message_id) & (messages["y_true"].notna())
+        ]
+
+        if not matching_true.empty:
+            complete_row = messages[messages["id"] == message_id].iloc[0]
+            process_complete_row(complete_row)
+            # Удаляем обработанную строку
+            messages = messages[messages["id"] != message_id]
+
+    # Устанавливаем обработчики сообщений
+    channel.basic_consume(
+        queue="y_true", on_message_callback=callback_y_true, auto_ack=True
+    )
+
+    channel.basic_consume(
+        queue="y_pred", on_message_callback=callback_y_pred, auto_ack=True
+    )
+
     print("...Ожидание сообщений, для выхода нажмите CTRL+C")
     channel.start_consuming()
+
 except Exception as e:
     print(f"Не удалось подключиться к очереди: {e}")

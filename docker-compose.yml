@@ -8,18 +8,12 @@ services:
     ports:
        - 5672:5672
        - 15672:15672
-    networks:
-      - my_network
-
   features:
     build:
       context: ./features
     restart: always
     depends_on:
       - rabbitmq
-    networks:
-      - my_network
-
   model:
     build:
       context: ./model
@@ -27,9 +21,6 @@ services:
     depends_on:
       - rabbitmq
       - features
-    networks:
-      - my_network
-
   metric:
     build:
       context: ./metric
@@ -38,21 +29,13 @@ services:
       - rabbitmq
       - features
       - model
-    networks:
-      - my_network
-
+    volumes:
+      - ./logs:/usr/src/app/logs/
   plot:
     build:
       context: ./plot
     restart: always
     depends_on:
-      - rabbitmq
       - metric
     volumes:
-      - ./logs:/app/logs
-    networks:
-      - my_network
-
-networks:
-  my_network:
-    driver: bridge
+      - ./logs:/app/logs/
