@@ -39,11 +39,11 @@ def plot_error_distribution():
                 plt.savefig("logs/error_distribution.png")
                 plt.close()
 
-            time.sleep(5)
+            time.sleep(10)
 
         except Exception as e:
             print(f"Error occurred: {e}")
-            time.sleep(5)
+            time.sleep(10)
 
 if __name__ == "__main__":
     plot_error_distribution()

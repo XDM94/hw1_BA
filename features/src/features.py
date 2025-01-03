@@ -48,8 +48,8 @@ while True:
         connection.close()
 
         # Добавляем задержку в 5 секунд
-        time.sleep(5)
+        time.sleep(10)
 
     except Exception as e:
         print(f"Не удалось подключиться к очереди: {e}")
-        time.sleep(5)
+        time.sleep(10)
